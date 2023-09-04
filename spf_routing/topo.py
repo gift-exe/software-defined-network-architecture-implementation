@@ -24,7 +24,7 @@ def create_topology():
 
     # Add the controller
     c0 = RemoteController
-    net.addController('c0')
+    net.addController(c0)
 
     # Start the CLI (you can interact with the network now)
     CLI(net)

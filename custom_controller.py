@@ -11,6 +11,9 @@ from ryu.lib.packet import arp
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import icmp
 from ryu.lib.packet import ether_types
+from ryu.lib.packet import lldp
+
+from ryu.topology import event, switches
 
 import logging
 
@@ -25,14 +28,18 @@ class MyController( app_manager.RyuApp ):
         super(MyController, self).__init__(*args, **kwargs)
         wsgi = kwargs['wsgi']
         wsgi.register(controller=MyControllerRest, data={'my_controller': self})
-        self.switches = {}
-        self.mac_to_port = {}
+
+        self.switches = set()
+        self.links = set()
+        self.hosts = set()
+        self.topology = dict()
+        self.mac_to_port = dict()
+
         self.logger.setLevel(logging.DEBUG)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
-        self.switches[datapath.id] = datapath
         parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
 
@@ -52,13 +59,10 @@ class MyController( app_manager.RyuApp ):
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         datapath = ev.msg.datapath
-        port = ev.msg.match['in_port']
-
+        in_port = ev.msg.match['in_port']
         pkt = packet.Packet(data=ev.msg.data)
-        pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
 
-        # d = ' '.join([hex(byte) for byte in ev.msg.data])
-        # print('\n\nraw_data: ', d, '\n\n')
+        pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
 
         if not pkt_ethernet:
             return 
@@ -68,15 +72,16 @@ class MyController( app_manager.RyuApp ):
             return
        
         pkt_arp = pkt.get_protocol(arp.arp)
+        
         if pkt_arp:
-            self._handle_arp(datapath, port, pkt_ethernet, pkt_arp)
+            self._handle_arp(datapath, in_port, pkt_ethernet, pkt_arp)
             return
 
         pkt_ipv4 =  pkt.get_protocol(ipv4.ipv4)
         pkt_icmp = pkt.get_protocol(icmp.icmp)
 
         if pkt_icmp:
-            self._handle_icmp(datapath, port, pkt_ethernet, pkt_ipv4, pkt_icmp)
+            self._handle_icmp(datapath, in_port, pkt_ethernet, pkt_ipv4, pkt_icmp)
             return
     
         
@@ -84,9 +89,12 @@ class MyController( app_manager.RyuApp ):
         # if pkt_arp.opcode != arp.ARP_REQUEST:
         #     self.logger.warning('\n opcode != ARP_REQUEST, opcode = %s, ARP_REQUEST = %s \n' %(pkt_arp.opcode, arp.ARP_REQUEST))
         #     return 
+        print('----------------------------------------------')
+        #print('data packet arp: ', pkt_arp)
         pkt = packet.Packet()
         pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype, dst=pkt_ethernet.dst, src=pkt_ethernet.src))
         pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=pkt_arp.src_mac, src_ip=pkt_arp.src_ip, dst_mac=pkt_arp.dst_mac, dst_ip=pkt_arp.dst_ip))
+
         
         dst = pkt_ethernet.dst
         src = pkt_ethernet.src
@@ -118,13 +126,15 @@ class MyController( app_manager.RyuApp ):
         self.mac_to_port.setdefault(datapath.id, {})
         self.logger.info('\nPACKET-IN: %s %s %s %s \n' %(datapath.id, src, dst, port))
 
-        #the mapping de de        
+        # mac_port table update  (switch to host devices mapping)
         self.mac_to_port[datapath.id][src] = port
 
-        #if mapping dont exit, then just flood
+        #if mapping doesn't exist, then just flood
         if dst in self.mac_to_port[datapath.id]:
+            print('no flooding here')
             out_port = self.mac_to_port[datapath.id][dst]
         else:
+            print('flooding occurs')
             out_port = ofproto_v1_3.OFPP_FLOOD
         
         print(self.mac_to_port)
@@ -142,10 +152,9 @@ class MyController( app_manager.RyuApp ):
         #install a flow to avoid packet_in next time
         if out_port != ofproto.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
-            instructions = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions=actions)]
-            flow_mod = parser.OFPFlowMod(datapath=datapath, priority=1, match=match, instructions=instructions)
-            datapath.send_msg(flow_mod)
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
+            self.add_flow(datapath=datapath, priority=1, match=match, actions=actions)
+            #out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=data)
             datapath.send_msg(out)
             return
 
@@ -154,7 +163,6 @@ class MyController( app_manager.RyuApp ):
             # instead of just plain up flooding all the ports, 
             # what you did was to extract all the ports except the in-port and the controller 
             # and send all the packets manually to those ports .
-            
             out_ports = []
             for port in self.mac_to_port[datapath.id].values():
                 if port != in_port and port != ofproto.OFPP_CONTROLLER:
@@ -162,12 +170,44 @@ class MyController( app_manager.RyuApp ):
 
             for port in out_ports:
                 actions = [parser.OFPActionOutput(port=port)]
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
+                #out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
+                out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=data)
                 datapath.send_msg(out)
 
             return
-      
     
+    #get the switches
+    @set_ev_cls(event.EventSwitchEnter)
+    def _get_switches(self, ev):
+        self.switches.add(ev.switch)
+    
+    #get the links between dem switches
+    @set_ev_cls(event.EventLinkAdd)
+    def _get_links(self, ev):
+        self.links.add(ev.link)
+        self._mac_port_table_update(ev.link.src, ev.link.dst)
+    
+    #get the hosts.
+    @set_ev_cls(event.EventHostAdd)
+    def _get_hosts(self, ev):
+        print('New Host: ', ev.host)
+        
+    
+    def _mac_port_table_update(self, src_port, dst_port):
+        '''
+            "switch - to - switch" link update
+        '''
+        self.mac_to_port.setdefault(src_port.dpid, {})
+        self.mac_to_port[src_port.dpid][dst_port.hw_addr] = src_port.port_no
+
+        
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     from ryu import cfg
@@ -175,3 +215,6 @@ if __name__ == '__main__':
     app_manager.main()
 
     #app_manager.require_app('ryu.controller.ofp_handler', api_style=True)
+
+
+
