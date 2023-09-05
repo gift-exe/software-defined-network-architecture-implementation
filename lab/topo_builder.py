@@ -18,11 +18,9 @@ class TopoBuilder(Topo):
         h2s2 = self.addHost('h2s2', ip='192.168.1.5/8', xterm='xterm h2s2')
         h3s2 = self.addHost('h3s2', ip='192.168.1.6/8', xterm='xterm h3s2')
         
-
         h1s3 = self.addHost('h1s3', ip='192.168.1.7/8', xterm='xterm h1s3')
         h2s3 = self.addHost('h2s3', ip='192.168.1.8/8', xterm='xterm h2s3')
         h3s3 = self.addHost('h3s3', ip='192.168.1.9/8', xterm='xterm h3s3')
-        
 
         self.addLink(h1s1, s1)
         self.addLink(h2s1, s1)

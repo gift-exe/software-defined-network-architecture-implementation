@@ -11,13 +11,13 @@ from ryu.lib.packet import arp
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import icmp
 from ryu.lib.packet import ether_types
-from ryu.lib.packet import lldp
 
-from ryu.topology import event, switches
-
-import logging
+from ryu.topology import event
 
 from custom_controller_rest import MyControllerRest
+
+import logging
+import networkx as nx
 
 class MyController( app_manager.RyuApp ):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -32,8 +32,9 @@ class MyController( app_manager.RyuApp ):
         self.switches = set()
         self.links = set()
         self.hosts = set()
-        self.topology = dict()
         self.mac_to_port = dict()
+
+        self.net = nx.DiGraph()
 
         self.logger.setLevel(logging.DEBUG)
 
@@ -90,14 +91,17 @@ class MyController( app_manager.RyuApp ):
         #     self.logger.warning('\n opcode != ARP_REQUEST, opcode = %s, ARP_REQUEST = %s \n' %(pkt_arp.opcode, arp.ARP_REQUEST))
         #     return 
         print('----------------------------------------------')
-        #print('data packet arp: ', pkt_arp)
+        print('data packet arp: ', pkt_arp)
+        print('\ndata packet ethernet: ', pkt_ethernet)
+
         pkt = packet.Packet()
         pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype, dst=pkt_ethernet.dst, src=pkt_ethernet.src))
         pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=pkt_arp.src_mac, src_ip=pkt_arp.src_ip, dst_mac=pkt_arp.dst_mac, dst_ip=pkt_arp.dst_ip))
 
         
-        dst = pkt_ethernet.dst
-        src = pkt_ethernet.src
+        dst = pkt_arp.dst_mac
+        src = pkt_arp.src_mac
+
         out_port = self._mac_port_table_lookup(datapath, src, dst, port)
 
         self._send_packet(datapath, port, out_port, pkt, dst, src)
@@ -123,11 +127,10 @@ class MyController( app_manager.RyuApp ):
         """
             return outport and update mac-port table
         """
-        self.mac_to_port.setdefault(datapath.id, {})
         self.logger.info('\nPACKET-IN: %s %s %s %s \n' %(datapath.id, src, dst, port))
 
         # mac_port table update  (switch to host devices mapping)
-        self.mac_to_port[datapath.id][src] = port
+        # self.mac_to_port[datapath.id][src] = port
 
         #if mapping doesn't exist, then just flood
         if dst in self.mac_to_port[datapath.id]:
@@ -180,34 +183,22 @@ class MyController( app_manager.RyuApp ):
     @set_ev_cls(event.EventSwitchEnter)
     def _get_switches(self, ev):
         self.switches.add(ev.switch)
-    
+        self.mac_to_port.setdefault(ev.switch.dp.id, {})
+        #self.net.add_node(ev.switch.dp.id)
+
     #get the links between dem switches
     @set_ev_cls(event.EventLinkAdd)
     def _get_links(self, ev):
         self.links.add(ev.link)
-        self._mac_port_table_update(ev.link.src, ev.link.dst)
-    
+        self.mac_to_port[ev.link.src.dpid][ev.link.dst.hw_addr] = ev.link.src.port_no
+        #self.net.add_edge(u_of_edge=ev.link.src.dpid, v_of_edge=ev.link.dst.dpid)
+
     #get the hosts.
     @set_ev_cls(event.EventHostAdd)
     def _get_hosts(self, ev):
-        print('New Host: ', ev.host)
+        self.hosts.add(ev.host.mac)
+        self.mac_to_port[ev.host.port.dpid][ev.host.mac] = ev.host.port.port_no
         
-    
-    def _mac_port_table_update(self, src_port, dst_port):
-        '''
-            "switch - to - switch" link update
-        '''
-        self.mac_to_port.setdefault(src_port.dpid, {})
-        self.mac_to_port[src_port.dpid][dst_port.hw_addr] = src_port.port_no
-
-        
-
-
-
-
-
-
-
 
 if __name__ == '__main__':
     from ryu import cfg
