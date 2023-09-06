@@ -19,6 +19,8 @@ from custom_controller_rest import MyControllerRest
 import logging
 import networkx as nx
 
+import pickle
+
 class MyController( app_manager.RyuApp ):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     
@@ -29,9 +31,9 @@ class MyController( app_manager.RyuApp ):
         wsgi = kwargs['wsgi']
         wsgi.register(controller=MyControllerRest, data={'my_controller': self})
 
-        self.switches = set()
-        self.links = set()
-        self.hosts = set()
+        self.switches = list()
+        self.links = list()
+        self.hosts = list()
         self.mac_to_port = dict()
 
         self.net = nx.DiGraph()
@@ -98,9 +100,9 @@ class MyController( app_manager.RyuApp ):
         pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype, dst=pkt_ethernet.dst, src=pkt_ethernet.src))
         pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=pkt_arp.src_mac, src_ip=pkt_arp.src_ip, dst_mac=pkt_arp.dst_mac, dst_ip=pkt_arp.dst_ip))
 
-        
-        dst = pkt_arp.dst_mac
-        src = pkt_arp.src_mac
+        #get dst from ethernet packet.
+        dst = pkt_ethernet.dst
+        src = pkt_ethernet.src
 
         out_port = self._mac_port_table_lookup(datapath, src, dst, port)
 
@@ -127,28 +129,40 @@ class MyController( app_manager.RyuApp ):
         """
             return outport and update mac-port table
         """
-        self.logger.info('\nPACKET-IN: %s %s %s %s \n' %(datapath.id, src, dst, port))
+        self.logger.info('\nPACKET-IN ->| dpid: %s | src: %s | dst: %s | in_port: %s | outport: UNDETERMINED \n' %(datapath.id, src, dst, port))
 
-        # mac_port table update  (switch to host devices mapping)
-        # self.mac_to_port[datapath.id][src] = port
+        print(f'{self.mac_to_port}')
 
-        #if mapping doesn't exist, then just flood
-        if dst in self.mac_to_port[datapath.id]:
-            print('no flooding here')
-            out_port = self.mac_to_port[datapath.id][dst]
+        if dst in self.net:
+            path = nx.shortest_path(self.net,src,dst) # get shortest path  
+            print(f'\npath: {path}\n')
         else:
-            print('flooding occurs')
             out_port = ofproto_v1_3.OFPP_FLOOD
+            print(f'Path: {None}, Flood')
+            return out_port
         
-        print(self.mac_to_port)
-        return out_port
+        next_node = path[path.index(datapath.id)+1] #next hop. starting from node after switch connected to src host on the path array
+        if isinstance(next_node, int): #if it's an int, then it is leading to a different switch. the int represents a dpid
+            #as a result, all we have to do is to find the link that has the src dpid value as our current dpid value and the dst dpid value as the current_next node value
+            link = [link for link in self.links if link.src.dpid == datapath.id and link.dst.dpid == next_node]  #to be optimized : )
+            out_port_key = link[0].dst.hw_addr 
+            if out_port_key in self.mac_to_port[datapath.id].keys():
+                return self.mac_to_port[datapath.id][out_port_key] #outport
+        elif isinstance(next_node, str):
+            out_port = self.mac_to_port[datapath.id][next_node]
+            return out_port
+
+            
+        
+
+        
     
 
     def _send_packet(self, datapath, in_port, out_port, pkt, dst, src):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         pkt.serialize()
-        self.logger.info("\nPACKET-OUT: %s %s %s %s %s \n" %((datapath.id, src, dst, in_port, out_port)))
+        self.logger.info("\nPACKET-OUT ->| dpid: %s | src: %s | dst: %s | in_port: %s | out_port: %s | \n" %((datapath.id, src, dst, in_port, out_port)))
         data = pkt.data
         actions = [parser.OFPActionOutput(port=out_port)]
 
@@ -156,7 +170,6 @@ class MyController( app_manager.RyuApp ):
         if out_port != ofproto.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
             self.add_flow(datapath=datapath, priority=1, match=match, actions=actions)
-            #out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=data)
             datapath.send_msg(out)
             return
@@ -173,7 +186,6 @@ class MyController( app_manager.RyuApp ):
 
             for port in out_ports:
                 actions = [parser.OFPActionOutput(port=port)]
-                #out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=data)
                 datapath.send_msg(out)
 
@@ -182,22 +194,33 @@ class MyController( app_manager.RyuApp ):
     #get the switches
     @set_ev_cls(event.EventSwitchEnter)
     def _get_switches(self, ev):
-        self.switches.add(ev.switch)
+        self.switches.append(ev.switch) #to be sorted (for efficient searching)
         self.mac_to_port.setdefault(ev.switch.dp.id, {})
-        #self.net.add_node(ev.switch.dp.id)
+        
+        #add switch to netx object
+        self.net.add_node(ev.switch.dp.id)
 
     #get the links between dem switches
     @set_ev_cls(event.EventLinkAdd)
     def _get_links(self, ev):
-        self.links.add(ev.link)
+        self.links.append(ev.link) #to be sorted (for efficient searching)
         self.mac_to_port[ev.link.src.dpid][ev.link.dst.hw_addr] = ev.link.src.port_no
-        #self.net.add_edge(u_of_edge=ev.link.src.dpid, v_of_edge=ev.link.dst.dpid)
+        
+        #link switches in netx object
+        self.net.add_edge(u_of_edge=ev.link.src.dpid, v_of_edge=ev.link.dst.dpid)
 
     #get the hosts.
     @set_ev_cls(event.EventHostAdd)
     def _get_hosts(self, ev):
-        self.hosts.add(ev.host.mac)
+        self.hosts.append(ev.host.mac) #to be sorted (for efficient searching)
         self.mac_to_port[ev.host.port.dpid][ev.host.mac] = ev.host.port.port_no
+
+        #add host to netx object
+        self.net.add_node(ev.host.mac)
+
+        #bi-directional linking
+        self.net.add_edge(u_of_edge=ev.host.mac, v_of_edge=ev.host.port.dpid)
+        self.net.add_edge(v_of_edge=ev.host.mac, u_of_edge=ev.host.port.dpid)
         
 
 if __name__ == '__main__':
