@@ -109,7 +109,7 @@ class MyController( app_manager.RyuApp ):
         # if pkt_icmp.type != icmp.ICMP_ECHO_REQUEST:
         #     self.logger.warning('\n icmp.type != ICMP_ECHO_REQUEST, icmp.type = %s, ICMP_ECHO_REQUEST = %s \n' %(pkt_icmp.type, icmp.ICMP_ECHO_REQUEST))
         #     return 
-        
+
         pkt = packet.Packet()
         
         pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype, dst=pkt_ethernet.dst, src=pkt_ethernet.src))
@@ -126,8 +126,12 @@ class MyController( app_manager.RyuApp ):
         """
             return outport and update mac-port table
         """
-        self.logger.info('----------------------------------------------')
+        
         self.logger.info('\nPACKET-IN ->| dpid: %s | src: %s | dst: %s | in_port: %s | outport: UNDETERMINED \n' %(datapath.id, src, dst, port))
+
+        # store self.net object to visualize later 
+        # with open('netxG.pkl', 'wb') as f:
+        #     pickle.dump(self.net, f)
 
         if dst in self.net:
             path = nx.shortest_path(self.net,src,dst) # get shortest path  
