@@ -92,9 +92,6 @@ class MyController( app_manager.RyuApp ):
         # if pkt_arp.opcode != arp.ARP_REQUEST:
         #     self.logger.warning('\n opcode != ARP_REQUEST, opcode = %s, ARP_REQUEST = %s \n' %(pkt_arp.opcode, arp.ARP_REQUEST))
         #     return 
-        print('----------------------------------------------')
-        print('data packet arp: ', pkt_arp)
-        print('\ndata packet ethernet: ', pkt_ethernet)
 
         pkt = packet.Packet()
         pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype, dst=pkt_ethernet.dst, src=pkt_ethernet.src))
@@ -129,16 +126,13 @@ class MyController( app_manager.RyuApp ):
         """
             return outport and update mac-port table
         """
+        self.logger.info('----------------------------------------------')
         self.logger.info('\nPACKET-IN ->| dpid: %s | src: %s | dst: %s | in_port: %s | outport: UNDETERMINED \n' %(datapath.id, src, dst, port))
-
-        print(f'{self.mac_to_port}')
 
         if dst in self.net:
             path = nx.shortest_path(self.net,src,dst) # get shortest path  
-            print(f'\npath: {path}\n')
         else:
             out_port = ofproto_v1_3.OFPP_FLOOD
-            print(f'Path: {None}, Flood')
             return out_port
         
         next_node = path[path.index(datapath.id)+1] #next hop. starting from node after switch connected to src host on the path array
@@ -151,12 +145,6 @@ class MyController( app_manager.RyuApp ):
         elif isinstance(next_node, str):
             out_port = self.mac_to_port[datapath.id][next_node]
             return out_port
-
-            
-        
-
-        
-    
 
     def _send_packet(self, datapath, in_port, out_port, pkt, dst, src):
         ofproto = datapath.ofproto
@@ -177,7 +165,7 @@ class MyController( app_manager.RyuApp ):
         else: #initial flooding as the flow table get's updated, we wont need to flood anymore.
 
             # instead of just plain up flooding all the ports, 
-            # what you did was to extract all the ports except the in-port and the controller 
+            # what I did was to extract all the ports except the in-port and the controller 
             # and send all the packets manually to those ports .
             out_ports = []
             for port in self.mac_to_port[datapath.id].values():
