@@ -39,6 +39,8 @@ class MyController( app_manager.RyuApp ):
         self.net = nx.DiGraph()
 
         self.logger.setLevel(logging.DEBUG)
+        FileOutputHandler = logging.FileHandler('logs.log')
+        self.logger.addHandler(FileOutputHandler)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -126,15 +128,13 @@ class MyController( app_manager.RyuApp ):
         """
             return outport and update mac-port table
         """
-        
-        self.logger.info('\nPACKET-IN ->| dpid: %s | src: %s | dst: %s | in_port: %s | outport: UNDETERMINED \n' %(datapath.id, src, dst, port))
 
         # store self.net object to visualize later 
         # with open('netxG.pkl', 'wb') as f:
         #     pickle.dump(self.net, f)
 
         if dst in self.net:
-            path = nx.shortest_path(self.net,src,dst) # get shortest path  
+            path = nx.shortest_path(self.net,src,dst) # get shortest path
         else:
             out_port = ofproto_v1_3.OFPP_FLOOD
             return out_port
@@ -154,7 +154,7 @@ class MyController( app_manager.RyuApp ):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         pkt.serialize()
-        self.logger.info("\nPACKET-OUT ->| dpid: %s | src: %s | dst: %s | in_port: %s | out_port: %s | \n" %((datapath.id, src, dst, in_port, out_port)))
+        
         data = pkt.data
         actions = [parser.OFPActionOutput(port=out_port)]
 
