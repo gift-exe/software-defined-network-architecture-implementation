@@ -154,7 +154,7 @@ class MyController( app_manager.RyuApp ):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         pkt.serialize()
-        
+
         data = pkt.data
         actions = [parser.OFPActionOutput(port=out_port)]
 
