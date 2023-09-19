@@ -13,7 +13,7 @@ to run mininet script, use command:      `sudo python3 mininet_topo_script.py`
 
 or you can as well just create a mininet topology from the terminal eg: `sudo mn --topo single,3 --mac --controller remote --switch ovsk`  
 
-it's your choice really just start the ryu controller first.  
+it's your choice really. Just make sure to start the ryu controller first.  
 because that way the controller can detect network devices and their links as they are instanciated   
 on the mininet network : )
 
