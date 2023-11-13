@@ -1,6 +1,9 @@
 import subprocess
 import re
 import argparse
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
 parser = argparse.ArgumentParser(description='hehe')
 
@@ -32,6 +35,12 @@ if __name__ == '__main__':
     c = args.c 
     rtt_values = ping_and_extract_rtt(ip_address, c)
     if rtt_values:
-        print(rtt_values)
+        rtt_np = np.array(rtt_values)
+        print(rtt_np.mean(), rtt_np.min(), rtt_np.max())
+        rtt = pd.Series(rtt_values)
+        ax = rtt.plot(kind='line', marker='o')
+        ax.set_xlabel('Packet')
+        ax.set_ylabel('Round Trip Time')
+        plt.show()
     else:
         print('unable to ge rtt values')

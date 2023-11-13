@@ -1,0 +1,40 @@
+
+#BANDWIDTH
+#THROUGHPUT
+#ROUND_TRIP_TIME
+#JITTER_AND_PACKET_LOSS
+
+
+'''
+    To measure bandwidth, use the iperf command.
+    Measure bandwith between: h1s1 -- h3s1
+                              h1s1 -- h3s2
+                              h1s1 -- h3s3
+    perform the measurement sequentially and record the bandwidth, 
+    and then perform the measurement at the same time (parallel).
+    you would notice a drop in the bandwidth.
+
+    do the same for the gns3 network.
+
+'''
+
+To measure bandwidth with iperf, 
+
+you'll need to setup 2 hosts on the network.
+One would act as a server, and the other would act as the client.
+
+So open up the terminals of any 2 hosts (nodes) you want -- I use x-term to do this, and on one of them run:
+
+" iperf -s -i 1 " -- To set up that host as the server.
+
+then run this iperf command on the client host to maesure bandwidth:
+
+" iperf -c `server-node-ip-address` -d "  ("-d" makes it to run in bi-directinal mode)
+
+
+
+Measuring THROUGHPUT with wire shark:
+
+First start up wireshark on your system.
+
+
