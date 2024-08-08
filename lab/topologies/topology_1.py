@@ -14,9 +14,10 @@ class VLANHost(Host):
 
     def terminate(self):
         # Delete VLAN interface when terminating the host
-        vlan = int(self.intf().split('.')[-1])
-        self.cmd(f'ip link delete {self.intf()}.{vlan}')
-        super().terminate()
+        if self.intf():
+            vlan = int(self.intf().split('.')[-1])
+            self.cmd(f'ip link delete {self.intf()}.{vlan}')
+            super().terminate()
 
 
 class MultiTenantSwitchTopo(Topo):

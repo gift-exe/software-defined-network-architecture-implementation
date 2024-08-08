@@ -2,7 +2,7 @@ from mininet.topo import Topo
 from mininet.net import Mininet
 from mininet.log import setLogLevel
 from mininet.cli import CLI
-from mininet.node import OVSKernelSwitch, RemoteController, Host
+from mininet.node import OVSKernelSwitch, RemoteController
 
 class TopoBuilder(Topo):
     def build(self):
@@ -40,7 +40,7 @@ class TopoBuilder(Topo):
 if __name__ == '__main__':
     setLogLevel('info')
     topo =  TopoBuilder()
-    c0 = RemoteController('c0')
+    c0 = RemoteController(name='c0', port=6653)
     net = Mininet(topo=topo, controller=c0)
     net.start()
     CLI(net)

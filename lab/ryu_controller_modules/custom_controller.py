@@ -63,6 +63,7 @@ class MyController( app_manager.RyuApp ):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
+        
         datapath = ev.msg.datapath
         in_port = ev.msg.match['in_port']
         pkt = packet.Packet(data=ev.msg.data)
@@ -86,6 +87,7 @@ class MyController( app_manager.RyuApp ):
         pkt_icmp = pkt.get_protocol(icmp.icmp)
 
         if pkt_icmp:
+            print('New ICMP packet')
             self._handle_icmp(datapath, in_port, pkt_ethernet, pkt_ipv4, pkt_icmp)
             return
     
@@ -102,6 +104,8 @@ class MyController( app_manager.RyuApp ):
         #get dst from ethernet packet.
         dst = pkt_ethernet.dst
         src = pkt_ethernet.src
+
+        print(f'Arp Packet Created => src: {src} >> dst: {dst}\n')
 
         out_port = self._mac_port_table_lookup(datapath, src, dst, port)
 
@@ -120,6 +124,9 @@ class MyController( app_manager.RyuApp ):
 
         dst = pkt_ethernet.dst
         src = pkt_ethernet.src
+
+        print(f'ICMP Packet Created => src: {src} >> dst: {dst}')
+
         out_port = self._mac_port_table_lookup(datapath, src, dst, port)
 
         self._send_packet(datapath, port, out_port, pkt, dst, src)
@@ -130,11 +137,11 @@ class MyController( app_manager.RyuApp ):
         """
 
         # store self.net object to visualize later 
-        # with open('netxG.pkl', 'wb') as f:
-        #     pickle.dump(self.net, f)
+        with open('netxG.pkl', 'wb') as f:
+            pickle.dump(self.net, f)
 
         if dst in self.net:
-            path = nx.shortest_path(self.net,src,dst) # get shortest path
+            path = nx.shortest_path(self.net, src, dst) # get shortest path
         else:
             out_port = ofproto_v1_3.OFPP_FLOOD
             return out_port
@@ -186,6 +193,7 @@ class MyController( app_manager.RyuApp ):
     #get the switches
     @set_ev_cls(event.EventSwitchEnter)
     def _get_switches(self, ev):
+        print(f'New Switch Added: {ev.switch}')
         self.switches.append(ev.switch) #to be sorted (for efficient searching)
         self.mac_to_port.setdefault(ev.switch.dp.id, {})
         
@@ -195,6 +203,7 @@ class MyController( app_manager.RyuApp ):
     #get the links between dem switches
     @set_ev_cls(event.EventLinkAdd)
     def _get_links(self, ev):
+        print(f'New Link Added: {ev.link}')
         self.links.append(ev.link) #to be sorted (for efficient searching)
         self.mac_to_port[ev.link.src.dpid][ev.link.dst.hw_addr] = ev.link.src.port_no
         
@@ -204,6 +213,7 @@ class MyController( app_manager.RyuApp ):
     #get the hosts.
     @set_ev_cls(event.EventHostAdd)
     def _get_hosts(self, ev):
+        print(f'New Host Detected: {ev.host}')
         self.hosts.append(ev.host.mac) #to be sorted (for efficient searching)
         self.mac_to_port[ev.host.port.dpid][ev.host.mac] = ev.host.port.port_no
 
@@ -213,6 +223,8 @@ class MyController( app_manager.RyuApp ):
         #bi-directional linking
         self.net.add_edge(u_of_edge=ev.host.mac, v_of_edge=ev.host.port.dpid)
         self.net.add_edge(v_of_edge=ev.host.mac, u_of_edge=ev.host.port.dpid)
+
+        print(f'{self.mac_to_port}\n')
         
 
 if __name__ == '__main__':

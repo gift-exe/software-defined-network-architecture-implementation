@@ -13,7 +13,8 @@ class MyControllerRest(ControllerBase):
     @route('devices', '/devices', methods=['GET'])
     def get_devices(self, req, **kwargs):
         devices = self.my_controller.switches
-        device_list = [device.id for device in devices.values()]
+        print(vars(devices[0]))
+        device_list = [device.id for device in devices]
         device_list = json.dumps(device_list)
 
         return Response(content_type='application/json; charset=utf-8', body=device_list)
