@@ -67,10 +67,11 @@ class MyController( app_manager.RyuApp ):
         datapath = ev.msg.datapath
         in_port = ev.msg.match['in_port']
         pkt = packet.Packet(data=ev.msg.data)
-
+        
         pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
 
         if not pkt_ethernet:
+            print('NOT ETH PACKET')
             return 
         
         if pkt_ethernet.ethertype == ether_types.ETH_TYPE_LLDP:
@@ -80,6 +81,7 @@ class MyController( app_manager.RyuApp ):
         pkt_arp = pkt.get_protocol(arp.arp)
         
         if pkt_arp:
+            print(f'\nIN PORT => {in_port}\n')
             self._handle_arp(datapath, in_port, pkt_ethernet, pkt_arp)
             return
 
@@ -99,7 +101,7 @@ class MyController( app_manager.RyuApp ):
 
         pkt = packet.Packet()
         pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype, dst=pkt_ethernet.dst, src=pkt_ethernet.src))
-        pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=pkt_arp.src_mac, src_ip=pkt_arp.src_ip, dst_mac=pkt_arp.dst_mac, dst_ip=pkt_arp.dst_ip))
+        pkt.add_protocol(arp.arp(opcode=arp.ARP_REQUEST, src_mac=pkt_arp.src_mac, src_ip=pkt_arp.src_ip, dst_mac=pkt_arp.dst_mac, dst_ip=pkt_arp.dst_ip))
 
         #get dst from ethernet packet.
         dst = pkt_ethernet.dst
@@ -107,7 +109,7 @@ class MyController( app_manager.RyuApp ):
 
         print(f'Arp Packet Created => src: {src} >> dst: {dst}\n')
 
-        out_port = self._mac_port_table_lookup(datapath, src, dst, port)
+        out_port = self._mac_port_table_lookup(datapath, src, dst)
 
         self._send_packet(datapath, port, out_port, pkt, dst, src)
 
@@ -127,11 +129,11 @@ class MyController( app_manager.RyuApp ):
 
         print(f'ICMP Packet Created => src: {src} >> dst: {dst}')
 
-        out_port = self._mac_port_table_lookup(datapath, src, dst, port)
+        out_port = self._mac_port_table_lookup(datapath, src, dst)
 
         self._send_packet(datapath, port, out_port, pkt, dst, src)
 
-    def _mac_port_table_lookup(self, datapath, src, dst, port):
+    def _mac_port_table_lookup(self, datapath, src, dst):
         """
             return outport and update mac-port table
         """
@@ -149,10 +151,9 @@ class MyController( app_manager.RyuApp ):
         next_node = path[path.index(datapath.id)+1] #next hop. starting from node after switch connected to src host on the path array
         if isinstance(next_node, int): #if it's an int, then it is leading to a different switch. the int represents a dpid
             #as a result, all we have to do is to find the link that has the src dpid value as our current dpid value and the dst dpid value as the current_next node value
-            link = [link for link in self.links if link.src.dpid == datapath.id and link.dst.dpid == next_node]  #to be optimized : )
+            link = [link for link in self.links if link.src.dpid == datapath.id and link.dst.dpid == next_node]
             out_port_key = link[0].dst.hw_addr 
-            if out_port_key in self.mac_to_port[datapath.id].keys():
-                return self.mac_to_port[datapath.id][out_port_key] #outport
+            return self.mac_to_port[datapath.id][out_port_key] #outport
         elif isinstance(next_node, str):
             out_port = self.mac_to_port[datapath.id][next_node]
             return out_port
@@ -174,27 +175,16 @@ class MyController( app_manager.RyuApp ):
             return
 
         else: #initial flooding as the flow table get's updated, we wont need to flood anymore.
-
-            # instead of just plain up flooding all the ports, 
-            # what I did was to extract all the ports except the in-port and the controller 
-            # and send all the packets manually to those ports .
-            out_ports = []
-            for port in self.mac_to_port[datapath.id].values():
-                if port != in_port and port != ofproto.OFPP_CONTROLLER:
-                    out_ports.append(port)
-
-            for port in out_ports:
-                actions = [parser.OFPActionOutput(port=port)]
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=data)
-                datapath.send_msg(out)
-
+            actions = [parser.OFPActionOutput(port=out_port)]
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=data)
+            datapath.send_msg(out)
             return
     
     #get the switches
     @set_ev_cls(event.EventSwitchEnter)
     def _get_switches(self, ev):
         print(f'New Switch Added: {ev.switch}')
-        self.switches.append(ev.switch) #to be sorted (for efficient searching)
+        self.switches.append(ev.switch)
         self.mac_to_port.setdefault(ev.switch.dp.id, {})
         
         #add switch to netx object
@@ -204,7 +194,7 @@ class MyController( app_manager.RyuApp ):
     @set_ev_cls(event.EventLinkAdd)
     def _get_links(self, ev):
         print(f'New Link Added: {ev.link}')
-        self.links.append(ev.link) #to be sorted (for efficient searching)
+        self.links.append(ev.link)
         self.mac_to_port[ev.link.src.dpid][ev.link.dst.hw_addr] = ev.link.src.port_no
         
         #link switches in netx object
@@ -214,7 +204,7 @@ class MyController( app_manager.RyuApp ):
     @set_ev_cls(event.EventHostAdd)
     def _get_hosts(self, ev):
         print(f'New Host Detected: {ev.host}')
-        self.hosts.append(ev.host.mac) #to be sorted (for efficient searching)
+        self.hosts.append(ev.host.mac)
         self.mac_to_port[ev.host.port.dpid][ev.host.mac] = ev.host.port.port_no
 
         #add host to netx object

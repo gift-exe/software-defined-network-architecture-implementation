@@ -13,3 +13,6 @@ Make sure to start the ryu controller first.
 So that way the controller can detect network devices and their links as they are instantiated   
 on the mininet network (^_^ )
 
+---
+
+[Here](https://the-garden-iota.vercel.app/notes/exploring-computer-networks/building-a-simple-software-defined-network-with-ryu-and-mininet-in-python) I talk about my implementation of the SDN in detail : )
